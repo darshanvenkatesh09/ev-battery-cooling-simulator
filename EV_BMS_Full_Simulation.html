@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>EV BMS Thermal Management — Live Simulation</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0f14;--bg2:#131620;--bg3:#1a1e2b;--bg4:#1f2436;
+  --border:#2a3050;--border2:#3a4470;
+  --text:#c8d0e8;--text2:#8892b0;--text3:#4a5580;
+  --green:#00d084;--green-dim:#00804f;--green-bg:rgba(0,208,132,0.08);
+  --amber:#ffb020;--amber-dim:#995500;--amber-bg:rgba(255,176,32,0.08);
+  --red:#ff4040;--red-dim:#991010;--red-bg:rgba(255,64,64,0.08);
+  --blue:#4080ff;--blue-dim:#1a3a99;--blue-bg:rgba(64,128,255,0.08);
+  --cyan:#00c8e0;--cyan-bg:rgba(0,200,224,0.08);
+  --pump-active:rgba(0,200,224,0.15);
+  --relay-on:#00d084;
+  font-family:'Share Tech Mono',monospace;
+}
+body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+
+/* ── TOP HEADER ── */
+.hdr{background:var(--bg2);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.hdr-title{font-size:13px;letter-spacing:3px;color:var(--text);font-weight:700}
+.hdr-sub{font-size:9px;letter-spacing:2px;color:var(--text2);margin-top:2px}
+.hdr-right{display:flex;align-items:center;gap:16px}
+.status-pill{display:inline-flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:4px 10px;font-size:10px;letter-spacing:1.5px}
+.status-dot{width:7px;height:7px;border-radius:50%}
+.blink{animation:blink 1s step-start infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* ── MAIN GRID ── */
+.main{display:grid;grid-template-columns:340px 1fr 280px;gap:0;height:calc(100vh - 50px)}
+.col-left,.col-right{background:var(--bg2);border-right:1px solid var(--border);overflow-y:auto}
+.col-right{border-right:none;border-left:1px solid var(--border)}
+.col-mid{background:var(--bg);overflow-y:auto;padding:16px}
+
+/* ── PANELS ── */
+.panel{border-bottom:1px solid var(--border);padding:12px 14px}
+.panel-title{font-size:9px;letter-spacing:3px;color:var(--text2);text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+.panel-title span{color:var(--text3);font-size:8px;letter-spacing:1px}
+
+/* ── CELL GRID ── */
+.cell-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:2px}
+.cell{width:100%;aspect-ratio:1;border-radius:2px;cursor:pointer;transition:all 0.3s;position:relative;border:1px solid transparent}
+.cell:hover{transform:scale(1.15);z-index:10}
+.cell.selected{border-color:#fff !important;z-index:5}
+.cell-label{position:absolute;bottom:1px;right:1px;font-size:5px;color:rgba(255,255,255,0.6);pointer-events:none}
+
+/* Cell temp colors */
+.temp-0{background:#1a3a5c;border-color:#1f4570}
+.temp-1{background:#1a4a2e;border-color:#1f5535}
+.temp-2{background:#2a5a20;border-color:#306825}
+.temp-3{background:#4a7a10;border-color:#558a15}
+.temp-4{background:#7a9000;border-color:#8fa010}
+.temp-5{background:#a07800;border-color:#b88800}
+.temp-6{background:#c05000;border-color:#d86000}
+.temp-7{background:#d83020;border-color:#e84030}
+.temp-8{background:#ff2020;border-color:#ff4040;animation:hotpulse 0.8s ease-in-out infinite}
+@keyframes hotpulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.3)}}
+
+/* ── METRIC CARDS ── */
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.metric{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:8px 10px}
+.metric-label{font-size:8px;letter-spacing:2px;color:var(--text2);margin-bottom:4px}
+.metric-value{font-size:20px;font-weight:700;line-height:1}
+.metric-unit{font-size:9px;color:var(--text2);margin-left:2px}
+.metric-sub{font-size:8px;color:var(--text3);margin-top:3px}
+.metric.warn{border-color:var(--amber-dim);background:var(--amber-bg)}
+.metric.alarm{border-color:var(--red-dim);background:var(--red-bg);animation:alarmglow 0.6s ease-in-out infinite}
+@keyframes alarmglow{0%,100%{box-shadow:none}50%{box-shadow:0 0 12px rgba(255,64,64,0.3)}}
+.metric.active{border-color:var(--green-dim);background:var(--green-bg)}
+.metric.cool{border-color:var(--blue-dim);background:var(--blue-bg)}
+
+/* ── RELAY / PUMP ── */
+.relay-block{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
+.relay-label{font-size:9px;letter-spacing:2px;color:var(--text2)}
+.relay-state{font-size:11px;font-weight:700;letter-spacing:2px}
+.relay-state.on{color:var(--green)}
+.relay-state.off{color:var(--text3)}
+
+.pump-viz{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:8px}
+.pump-label{font-size:8px;letter-spacing:2px;color:var(--text2);margin-bottom:6px}
+.flow-bar{height:8px;background:var(--bg4);border-radius:4px;overflow:hidden;margin-bottom:4px}
+.flow-fill{height:100%;background:linear-gradient(90deg,#1a6a9a,var(--cyan));border-radius:4px;transition:width 0.5s;position:relative;overflow:hidden}
+.flow-fill::after{content:'';position:absolute;top:0;left:-100%;width:50%;height:100%;background:rgba(255,255,255,0.2);animation:flowwave 1.5s linear infinite}
+.flow-fill.off::after{animation:none}
+.flow-fill.off{background:#2a3050}
+@keyframes flowwave{to{left:200%}}
+.flow-val{font-size:10px;color:var(--text);text-align:right}
+
+/* ── PRESSURE SENSORS ── */
+.sensor-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
+.sensor-card{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:7px 10px}
+.sensor-name{font-size:8px;letter-spacing:1.5px;color:var(--text2);margin-bottom:3px}
+.sensor-val{font-size:16px;font-weight:700}
+.sensor-unit{font-size:8px;color:var(--text2)}
+
+/* ── LOGS ── */
+.log-box{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:8px;height:180px;overflow-y:auto;font-size:9px;line-height:1.8}
+.log-entry{display:flex;gap:8px;padding:1px 0}
+.log-time{color:var(--text3);min-width:52px}
+.log-msg{flex:1}
+.log-info{color:var(--text2)}
+.log-warn{color:var(--amber)}
+.log-alarm{color:var(--red);font-weight:700}
+.log-ok{color:var(--green)}
+.log-cool{color:var(--cyan)}
+
+/* ── CELL DETAIL ── */
+.cell-detail{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:10px 12px;margin-bottom:8px}
+.cd-title{font-size:8px;letter-spacing:2px;color:var(--text2);margin-bottom:8px}
+.cd-row{display:flex;justify-content:space-between;font-size:10px;padding:2px 0;border-bottom:1px solid var(--border)}
+.cd-row:last-child{border-bottom:none}
+.cd-key{color:var(--text2)}
+.cd-val{color:var(--text);font-weight:700}
+
+/* ── TEMP BAR ── */
+.temp-bar-wrap{margin-bottom:12px}
+.temp-bar-label{font-size:8px;letter-spacing:2px;color:var(--text2);margin-bottom:4px;display:flex;justify-content:space-between}
+.temp-bar-outer{height:12px;background:var(--bg4);border-radius:2px;overflow:hidden;border:1px solid var(--border)}
+.temp-bar-inner{height:100%;border-radius:2px;transition:width 0.4s,background 0.4s}
+
+/* ── CONTROLS ── */
+.ctrl-section{margin-bottom:12px}
+.ctrl-title{font-size:9px;letter-spacing:2px;color:var(--text2);margin-bottom:8px}
+.ctrl-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:10px}
+.ctrl-row label{min-width:110px;color:var(--text2);font-size:9px;letter-spacing:1px}
+.ctrl-row input[type=range]{flex:1;accent-color:var(--cyan);height:3px}
+.ctrl-row span{min-width:36px;text-align:right;color:var(--text)}
+.ctrl-btn{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:6px 12px;font-family:inherit;font-size:9px;letter-spacing:2px;cursor:pointer;border-radius:3px;transition:all 0.2s}
+.ctrl-btn:hover{background:var(--bg4);border-color:var(--border2)}
+.ctrl-btn.danger{border-color:var(--red-dim);color:var(--red)}
+.ctrl-btn.danger:hover{background:var(--red-bg)}
+.ctrl-btn.warn{border-color:var(--amber-dim);color:var(--amber)}
+.ctrl-btn.warn:hover{background:var(--amber-bg)}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+
+/* ── SCOPE CHART ── */
+.scope-wrap{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:8px;margin-bottom:8px}
+.scope-title{font-size:8px;letter-spacing:2px;color:var(--text2);margin-bottom:6px;display:flex;justify-content:space-between}
+.scope-canvas-wrap{position:relative;width:100%;height:120px}
+canvas.scope{width:100%;height:120px;display:block}
+
+/* ── PICO STATUS ── */
+.pico-block{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:8px}
+.pico-title{font-size:8px;letter-spacing:2px;color:var(--text2);margin-bottom:8px}
+.gp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.gp-pin{background:var(--bg4);border:1px solid var(--border);border-radius:3px;padding:4px 6px;font-size:8px;text-align:center}
+.gp-pin.high{background:var(--green-bg);border-color:var(--green-dim);color:var(--green)}
+.gp-pin.active-mux{background:var(--blue-bg);border-color:var(--blue-dim);color:var(--blue)}
+.gp-label{font-size:7px;color:var(--text3);letter-spacing:1px;margin-bottom:1px}
+.gp-val{font-size:9px;font-weight:700}
+
+/* ── FAULT BANNER ── */
+.fault-banner{background:var(--red-bg);border:1px solid var(--red-dim);border-radius:4px;padding:8px 12px;margin-bottom:8px;display:none;align-items:center;gap:10px}
+.fault-banner.show{display:flex}
+.fault-icon{font-size:16px}
+.fault-text{font-size:10px;color:var(--red);font-weight:700;letter-spacing:1.5px}
+.fault-sub{font-size:8px;color:var(--text2);margin-top:2px}
+
+/* ── SCROLL ── */
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:var(--bg2)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* ── THERMISTOR SCHEMATIC MINI ── */
+.mini-schematic{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:8px;margin-bottom:8px}
+.ms-title{font-size:8px;letter-spacing:2px;color:var(--text2);margin-bottom:6px}
+
+/* ── MUX INDICATOR ── */
+.mux-row{display:flex;gap:3px;margin-bottom:6px;flex-wrap:wrap}
+.mux-chip{background:var(--bg4);border:1px solid var(--border);border-radius:3px;padding:3px 5px;font-size:7px;letter-spacing:1px;color:var(--text3);transition:all 0.2s;text-align:center;min-width:28px}
+.mux-chip.scanning{background:var(--blue-bg);border-color:var(--blue-dim);color:var(--blue)}
+
+/* ── COOLING FLOW DIAGRAM ── */
+.flow-diagram{margin-bottom:8px}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div>
+    <div class="hdr-title">EV BATTERY THERMAL MANAGEMENT SYSTEM — LIVE SIMULATION</div>
+    <div class="hdr-sub">92-CELL PACK · RASPBERRY PI PICO · DAVIES CRAIG EBP25 · RELAY GP6 · NTC 10kΩ B=3950K · DWG EVC-SCH-002 REV D</div>
+  </div>
+  <div class="hdr-right">
+    <div class="status-pill">
+      <div class="status-dot" id="sys-dot" style="background:var(--green)"></div>
+      <span id="sys-status">SYSTEM NOMINAL</span>
+    </div>
+    <div class="status-pill">
+      <div class="status-dot" id="pump-dot" style="background:var(--text3)"></div>
+      <span id="pump-status">PUMP OFF</span>
+    </div>
+    <div class="status-pill" style="font-size:11px;color:var(--cyan)" id="sim-clock">T+00:00</div>
+  </div>
+</div>
+
+<!-- MAIN LAYOUT -->
+<div class="main">
+
+<!-- ════ LEFT COLUMN ════ -->
+<div class="col-left">
+
+  <!-- 92-Cell heatmap -->
+  <div class="panel">
+    <div class="panel-title">92-CELL PACK THERMAL MAP <span id="scan-cell-lbl">SCANNING CH: 01</span></div>
+    <div class="cell-grid" id="cell-grid"></div>
+    <div style="display:flex;gap:6px;margin-top:8px;align-items:center;font-size:8px;color:var(--text2)">
+      <span>COLD</span>
+      <div style="flex:1;height:6px;border-radius:3px;background:linear-gradient(90deg,#1a3a5c,#1a4a2e,#4a7a10,#a07800,#d83020,#ff2020)"></div>
+      <span>HOT 55°C</span>
+    </div>
+  </div>
+
+  <!-- Temp distribution -->
+  <div class="panel">
+    <div class="panel-title">TEMPERATURE DISTRIBUTION</div>
+    <div class="temp-bar-wrap">
+      <div class="temp-bar-label"><span>MIN CELL</span><span id="tmin-val">--</span></div>
+      <div class="temp-bar-outer"><div class="temp-bar-inner" id="tmin-bar" style="background:var(--blue)"></div></div>
+    </div>
+    <div class="temp-bar-wrap">
+      <div class="temp-bar-label"><span>AVG CELL</span><span id="tavg-val">--</span></div>
+      <div class="temp-bar-outer"><div class="temp-bar-inner" id="tavg-bar" style="background:var(--green)"></div></div>
+    </div>
+    <div class="temp-bar-wrap">
+      <div class="temp-bar-label"><span>MAX CELL</span><span id="tmax-val">--</span></div>
+      <div class="temp-bar-outer"><div class="temp-bar-inner" id="tmax-bar"></div></div>
+    </div>
+    <div class="temp-bar-wrap">
+      <div class="temp-bar-label"><span>HOT CELLS (&gt;40°C)</span><span id="thot-val">0</span></div>
+      <div class="temp-bar-outer"><div class="temp-bar-inner" id="thot-bar" style="background:var(--red)"></div></div>
+    </div>
+  </div>
+
+  <!-- Selected cell detail -->
+  <div class="panel">
+    <div class="panel-title">SELECTED CELL DETAIL</div>
+    <div class="cell-detail">
+      <div class="cd-title" id="cd-title">CELL #01 — ROW A, COL 1</div>
+      <div class="cd-row"><span class="cd-key">NTC REF</span><span class="cd-val" id="cd-ntcref">T1</span></div>
+      <div class="cd-row"><span class="cd-key">TEMPERATURE</span><span class="cd-val" id="cd-temp">--</span></div>
+      <div class="cd-row"><span class="cd-key">NTC RESISTANCE</span><span class="cd-val" id="cd-ntcr">--</span></div>
+      <div class="cd-row"><span class="cd-key">ADC VOLTAGE</span><span class="cd-val" id="cd-adc">--</span></div>
+      <div class="cd-row"><span class="cd-key">MUX CHIP</span><span class="cd-val" id="cd-mux">U2, CH0</span></div>
+      <div class="cd-row"><span class="cd-key">STATUS</span><span class="cd-val" id="cd-status">NORMAL</span></div>
+    </div>
+    <!-- Mini schematic: voltage divider -->
+    <div class="mini-schematic">
+      <div class="ms-title">NTC VOLTAGE DIVIDER — CELL INTERFACE</div>
+      <svg width="100%" viewBox="0 0 240 90" style="display:block">
+        <text x="10" y="14" fill="#4080ff" font-size="9" font-family="Share Tech Mono">3.3V (PICO ADC_VREF)</text>
+        <line x1="60" y1="16" x2="60" y2="26" stroke="#4080ff" stroke-width="1.2"/>
+        <!-- R pullup box -->
+        <rect x="44" y="26" width="32" height="14" fill="none" stroke="#8892b0" stroke-width="1"/>
+        <text x="60" y="36" text-anchor="middle" fill="#8892b0" font-size="7" font-family="Share Tech Mono">10kΩ</text>
+        <line x1="60" y1="40" x2="60" y2="50"/>
+        <!-- NTC box -->
+        <rect x="44" y="50" width="32" height="14" fill="none" stroke="#00c8e0" stroke-width="1"/>
+        <text x="60" y="60" text-anchor="middle" fill="#00c8e0" font-size="7" font-family="Share Tech Mono">NTC</text>
+        <line x1="60" y1="50" x2="60" y2="50"/>
+        <line x1="60" y1="64" x2="60" y2="74"/>
+        <!-- GND -->
+        <line x1="44" y1="74" x2="76" y2="74" stroke="#8892b0" stroke-width="1.5"/>
+        <line x1="50" y1="77" x2="70" y2="77" stroke="#8892b0" stroke-width="1"/>
+        <line x1="55" y1="80" x2="65" y2="80" stroke="#8892b0" stroke-width="0.8"/>
+        <text x="66" y="36" fill="#8892b0" font-size="7" font-family="Share Tech Mono">R1–R92</text>
+        <text x="78" y="78" fill="#8892b0" font-size="7" font-family="Share Tech Mono">GND</text>
+        <!-- ADC tap -->
+        <line x1="76" y1="50" x2="130" y2="50" stroke="#ffb020" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="133" y="44" fill="#ffb020" font-size="7.5" font-family="Share Tech Mono">→ PICO ADC</text>
+        <text x="133" y="54" fill="#c8d0e8" font-size="7" font-family="Share Tech Mono" id="ms-vadcval">Vadc = --</text>
+        <text x="133" y="63" fill="#00c8e0" font-size="7" font-family="Share Tech Mono" id="ms-rntcval">Rntc = --</text>
+        <text x="133" y="72" fill="#ff4040" font-size="7" font-family="Share Tech Mono" id="ms-tempval">T = --</text>
+        <circle cx="76" cy="50" r="2.5" fill="#ffb020"/>
+        <circle cx="60" cy="50" r="2.5" fill="#c8d0e8"/>
+        <line x1="60" y1="40" x2="60" y2="50" stroke="#8892b0" stroke-width="1.2"/>
+      </svg>
+    </div>
+  </div>
+
+</div>
+
+<!-- ════ MID COLUMN ════ -->
+<div class="col-mid">
+
+  <!-- Fault banner -->
+  <div class="fault-banner" id="fault-banner">
+    <div class="fault-icon">⚠</div>
+    <div>
+      <div class="fault-text">OVER-TEMPERATURE FAULT — GP7 HIGH — BUZZER ACTIVE</div>
+      <div class="fault-sub" id="fault-sub">Cell T &gt; 55°C detected. Relay stays ON. UART fault log active. LED3 RED.</div>
+    </div>
+  </div>
+
+  <!-- Key metrics -->
+  <div class="metrics">
+    <div class="metric" id="m-maxtemp">
+      <div class="metric-label">MAX CELL TEMP</div>
+      <div><span class="metric-value" id="m-maxtemp-v">--</span><span class="metric-unit">°C</span></div>
+      <div class="metric-sub" id="m-maxtemp-s">Threshold: 40°C relay ON</div>
+    </div>
+    <div class="metric" id="m-avgtemp">
+      <div class="metric-label">AVG CELL TEMP</div>
+      <div><span class="metric-value" id="m-avgtemp-v">--</span><span class="metric-unit">°C</span></div>
+      <div class="metric-sub">Pack average (all 92 cells)</div>
+    </div>
+    <div class="metric" id="m-relay">
+      <div class="metric-label">RELAY RLY1 GP6</div>
+      <div><span class="metric-value" id="m-relay-v">OFF</span></div>
+      <div class="metric-sub">Songle SRD-12VDC — NO contact</div>
+    </div>
+    <div class="metric" id="m-pump">
+      <div class="metric-label">PUMP M1 (EBP25)</div>
+      <div><span class="metric-value" id="m-pump-v">0</span><span class="metric-unit">L/min</span></div>
+      <div class="metric-sub" id="m-pump-s">12V DC — max 25 L/min</div>
+    </div>
+  </div>
+
+  <!-- Coolant flow diagram (SVG) -->
+  <div class="flow-diagram">
+    <svg width="100%" viewBox="0 0 680 140" style="display:block;background:var(--bg3);border:1px solid var(--border);border-radius:4px">
+      <!-- Grid lines subtle -->
+      <defs>
+        <marker id="farr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round"/>
+        </marker>
+        <!-- Animated flow dash for pipe -->
+        <style>
+          .pipecool{stroke:#1a6aaa;stroke-width:5;stroke-dasharray:6 4;animation:pipeflow 1.2s linear infinite;fill:none;stroke-linecap:butt}
+          .pipehot{stroke:#aa3a1a;stroke-width:5;stroke-dasharray:6 4;animation:pipeflowrev 1.2s linear infinite;fill:none;stroke-linecap:butt}
+          .pipeoff{stroke:#2a3050;stroke-width:5;stroke-dasharray:6 4;fill:none;stroke-linecap:butt}
+          @keyframes pipeflow{to{stroke-dashoffset:-20}}
+          @keyframes pipeflowrev{to{stroke-dashoffset:20}}
+        </style>
+      </defs>
+
+      <!-- BATTERY PACK BOX -->
+      <rect x="10" y="30" width="120" height="80" rx="6" fill="#1a1e2b" stroke="#3a4470" stroke-width="1.2"/>
+      <text x="70" y="56" text-anchor="middle" fill="#c8d0e8" font-size="9" font-family="Share Tech Mono" font-weight="700">BATTERY</text>
+      <text x="70" y="68" text-anchor="middle" fill="#c8d0e8" font-size="9" font-family="Share Tech Mono" font-weight="700">PACK</text>
+      <text x="70" y="82" text-anchor="middle" fill="#8892b0" font-size="7" font-family="Share Tech Mono">92 CELLS</text>
+      <text x="70" y="93" text-anchor="middle" fill="#8892b0" font-size="7" font-family="Share Tech Mono" id="pack-tempbig">AVG --°C</text>
+
+      <!-- COLD PLATE (inside pack, schematic) -->
+      <rect x="22" y="40" width="96" height="16" rx="2" fill="#1a3a5c" stroke="#3a6a8a" stroke-width="0.8"/>
+      <text x="70" y="51" text-anchor="middle" fill="#4080ff" font-size="6.5" font-family="Share Tech Mono">COLD PLATE / COOLING CHANNELS</text>
+
+      <!-- PIPES between pack and pump -->
+      <!-- HOT pipe (from pack outlet top → radiator inlet) -->
+      <path id="pipe-hot1" class="pipeoff" d="M130 50 L200 50"/>
+      <!-- RADIATOR -->
+      <rect x="200" y="24" width="80" height="50" rx="4" fill="#1a1e2b" stroke="#3a4470" stroke-width="1.2"/>
+      <text x="240" y="45" text-anchor="middle" fill="#8892b0" font-size="8" font-family="Share Tech Mono">RADIATOR</text>
+      <text x="240" y="57" text-anchor="middle" fill="#8892b0" font-size="7" font-family="Share Tech Mono">+COOLANT</text>
+      <text x="240" y="67" text-anchor="middle" fill="#8892b0" font-size="7" font-family="Share Tech Mono">RESERVOIR</text>
+      <!-- hot pipe into radiator -->
+      <path id="pipe-hot2" class="pipeoff" d="M280 50 L340 50"/>
+      <!-- COOLANT PUMP BOX -->
+      <rect x="340" y="24" width="90" height="50" rx="4" fill="#1a1e2b" stroke="#3a4470" stroke-width="1.2" id="pump-box"/>
+      <text x="385" y="42" text-anchor="middle" fill="#8892b0" font-size="8" font-family="Share Tech Mono" id="pump-lbl1">PUMP M1</text>
+      <text x="385" y="54" text-anchor="middle" fill="#8892b0" font-size="7" font-family="Share Tech Mono">EBP25</text>
+      <text x="385" y="66" text-anchor="middle" fill="#4a5580" font-size="7" font-family="Share Tech Mono" id="pump-lbl2">OFF</text>
+      <!-- Pump spinny indicator -->
+      <circle id="pump-spinner" cx="385" cy="49" r="8" fill="none" stroke="#2a3050" stroke-width="1.5" opacity="0.5"/>
+
+      <!-- cool pipe from pump to pack -->
+      <path id="pipe-cool1" class="pipeoff" d="M430 50 L490 50"/>
+
+      <!-- PRESSURE SENSOR PS1 (pump outlet) -->
+      <circle cx="460" cy="50" r="8" fill="#1a1e2b" stroke="#3a4470" stroke-width="1"/>
+      <text x="460" y="44" text-anchor="middle" fill="#8892b0" font-size="6.5" font-family="Share Tech Mono">PS1</text>
+      <text x="460" y="54" text-anchor="middle" fill="#ffb020" font-size="7" font-family="Share Tech Mono" id="diag-ps1">--</text>
+
+      <!-- THERMOSTAT / BMS PCB box -->
+      <rect x="490" y="24" width="90" height="50" rx="4" fill="#1a1e2b" stroke="#3a4470" stroke-width="1.2"/>
+      <text x="535" y="42" text-anchor="middle" fill="#8892b0" font-size="8" font-family="Share Tech Mono">PICO BMS</text>
+      <text x="535" y="54" text-anchor="middle" fill="#8892b0" font-size="7" font-family="Share Tech Mono">RP2040</text>
+      <text x="535" y="66" text-anchor="middle" fill="#00d084" font-size="7" font-family="Share Tech Mono" id="diag-pico">RUNNING</text>
+
+      <!-- PRESSURE SENSOR PS2 (pack inlet) -->
+      <circle cx="155" cy="95" r="8" fill="#1a1e2b" stroke="#3a4470" stroke-width="1"/>
+      <text x="155" y="89" text-anchor="middle" fill="#8892b0" font-size="6.5" font-family="Share Tech Mono">PS2</text>
+      <text x="155" y="99" text-anchor="middle" fill="#ffb020" font-size="7" font-family="Share Tech Mono" id="diag-ps2">--</text>
+
+      <!-- cool pipe bottom loop (pico → bottom of pack) -->
+      <path id="pipe-cool2" class="pipeoff" d="M535 74 L535 110 L130 110 L130 95"/>
+
+      <!-- RELAY box -->
+      <rect x="580" y="24" width="80" height="50" rx="4" fill="#1a1e2b" id="relay-box-diag" stroke="#3a4470" stroke-width="1.2"/>
+      <text x="620" y="42" text-anchor="middle" fill="#8892b0" font-size="8" font-family="Share Tech Mono">RELAY</text>
+      <text x="620" y="54" text-anchor="middle" fill="#8892b0" font-size="7" font-family="Share Tech Mono">RLY1</text>
+      <text x="620" y="66" text-anchor="middle" fill="#4a5580" font-size="7" font-family="Share Tech Mono" id="diag-relay">GP6 LOW</text>
+
+      <!-- BMS → relay signal line -->
+      <line x1="580" y1="49" x2="660" y2="49" stroke="#4a5580" stroke-width="1" stroke-dasharray="3,2" id="relay-sig"/>
+
+      <!-- Title -->
+      <text x="340" y="128" text-anchor="middle" fill="#4a5580" font-size="8" font-family="Share Tech Mono">CLOSED-LOOP LIQUID COOLING CIRCUIT — EVC-CAD-002 REV D</text>
+    </svg>
+  </div>
+
+  <!-- Oscilloscope: temperature over time -->
+  <div class="scope-wrap">
+    <div class="scope-title">
+      <span>TEMPERATURE HISTORY — ALL CHANNELS (500ms SCAN CYCLE)</span>
+      <span id="scope-info" style="color:var(--text3)">MAX · AVG · MIN</span>
+    </div>
+    <div class="scope-canvas-wrap">
+      <canvas id="scope-canvas" class="scope"></canvas>
+    </div>
+  </div>
+
+  <!-- Relay logic chart -->
+  <div class="scope-wrap">
+    <div class="scope-title">
+      <span>RELAY STATE &amp; PUMP FLOW LOG</span>
+      <span style="color:var(--text3)">GP6 SIGNAL · FLOW RATE</span>
+    </div>
+    <div class="scope-canvas-wrap">
+      <canvas id="relay-canvas" class="scope"></canvas>
+    </div>
+  </div>
+
+  <!-- Simulation controls -->
+  <div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px;margin-bottom:8px">
+    <div class="ctrl-title">SIMULATION CONTROLS</div>
+    <div class="ctrl-section">
+      <div class="ctrl-row">
+        <label>LOAD HEAT RATE</label>
+        <input type="range" id="ctrl-heatrate" min="0" max="3" step="0.1" value="0.5">
+        <span id="ctrl-heatrate-v">+0.5°C/s</span>
+      </div>
+      <div class="ctrl-row">
+        <label>AMBIENT TEMP</label>
+        <input type="range" id="ctrl-ambient" min="15" max="45" step="1" value="25">
+        <span id="ctrl-ambient-v">25°C</span>
+      </div>
+      <div class="ctrl-row">
+        <label>CELL SPREAD (σ)</label>
+        <input type="range" id="ctrl-spread" min="0" max="5" step="0.1" value="1.5">
+        <span id="ctrl-spread-v">1.5°C</span>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="ctrl-btn warn" onclick="injectHotspot()">INJECT HOTSPOT</button>
+      <button class="ctrl-btn danger" onclick="triggerFault()">SIMULATE 55°C FAULT</button>
+      <button class="ctrl-btn" onclick="resetSim()">RESET SIMULATION</button>
+      <button class="ctrl-btn" onclick="quickCool()">FORCE COOL ALL</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ════ RIGHT COLUMN ════ -->
+<div class="col-right">
+
+  <!-- PICO GPIO state -->
+  <div class="panel">
+    <div class="panel-title">RASPBERRY PI PICO — GPIO STATE</div>
+    <div class="pico-block">
+      <div class="pico-title">SIGNAL PINS</div>
+      <div class="gp-grid">
+        <div class="gp-pin" id="gp-gp0"><div class="gp-label">GP0 TX</div><div class="gp-val">UART</div></div>
+        <div class="gp-pin" id="gp-gp1"><div class="gp-label">GP1 RX</div><div class="gp-val">UART</div></div>
+        <div class="gp-pin" id="gp-gp2"><div class="gp-label">GP2 SDA</div><div class="gp-val">I2C</div></div>
+        <div class="gp-pin" id="gp-gp3"><div class="gp-label">GP3 SCL</div><div class="gp-val">I2C</div></div>
+        <div class="gp-pin" id="gp-gp4"><div class="gp-label">GP4 ADC</div><div class="gp-val" id="gp4-v">--V</div></div>
+        <div class="gp-pin" id="gp-gp5"><div class="gp-label">GP5 ADC</div><div class="gp-val" id="gp5-v">--V</div></div>
+        <div class="gp-pin" id="gp-gp6"><div class="gp-label">GP6 RELAY</div><div class="gp-val" id="gp6-v">LOW</div></div>
+        <div class="gp-pin" id="gp-gp7"><div class="gp-label">GP7 BUZZER</div><div class="gp-val" id="gp7-v">LOW</div></div>
+        <div class="gp-pin" id="gp-gp8"><div class="gp-label">GP8 LED1</div><div class="gp-val">HIGH</div></div>
+        <div class="gp-pin" id="gp-gp9"><div class="gp-label">GP9 LED2</div><div class="gp-val" id="gp9-v">LOW</div></div>
+        <div class="gp-pin" id="gp-gp10"><div class="gp-label">GP10 LED3</div><div class="gp-val" id="gp10-v">LOW</div></div>
+        <div class="gp-pin" id="gp-gp11"><div class="gp-label">GP11 MUX_EN</div><div class="gp-val" id="gp11-v">--</div></div>
+      </div>
+    </div>
+
+    <!-- MUX scanning indicator -->
+    <div class="pico-block">
+      <div class="pico-title">CD74HC4067 MUX SCAN (U2–U7)</div>
+      <div class="mux-row" id="mux-row">
+        <div class="mux-chip" id="mux-0">U2</div>
+        <div class="mux-chip" id="mux-1">U3</div>
+        <div class="mux-chip" id="mux-2">U4</div>
+        <div class="mux-chip" id="mux-3">U5</div>
+        <div class="mux-chip" id="mux-4">U6</div>
+        <div class="mux-chip" id="mux-5">U7</div>
+      </div>
+      <div style="font-size:8px;color:var(--text3)">6× 16-CH MUX → 96 channels, cells 93–96 N/C</div>
+    </div>
+
+    <!-- OLED status -->
+    <div class="pico-block" style="background:#000;border:1px solid #2a4a2a;border-radius:4px;padding:10px;font-size:9px">
+      <div style="color:#00ff88;letter-spacing:2px;margin-bottom:2px">SSD1306 OLED 128×64 0x3C</div>
+      <div style="color:#00ff88;letter-spacing:1px" id="oled-l1">BMS THERMAL SYS</div>
+      <div style="color:#00ff88;letter-spacing:1px" id="oled-l2">MAX: --°C</div>
+      <div style="color:#00ff88;letter-spacing:1px" id="oled-l3">AVG: --°C</div>
+      <div style="color:#00ff88;letter-spacing:1px" id="oled-l4">PUMP: OFF</div>
+      <div style="color:#00ff88;letter-spacing:1px" id="oled-l5">RELAY: OPEN</div>
+    </div>
+  </div>
+
+  <!-- Relay & pump status -->
+  <div class="panel">
+    <div class="panel-title">RELAY &amp; PUMP CONTROL CHAIN</div>
+    <div class="relay-block">
+      <span class="relay-label">GP6 → Q1 MOSFET</span>
+      <span class="relay-state off" id="rl-q1">OFF (0V)</span>
+    </div>
+    <div class="relay-block">
+      <span class="relay-label">RELAY COIL (RLY1)</span>
+      <span class="relay-state off" id="rl-coil">DE-ENERGIZED</span>
+    </div>
+    <div class="relay-block">
+      <span class="relay-label">NO CONTACT (12V)</span>
+      <span class="relay-state off" id="rl-contact">OPEN</span>
+    </div>
+    <div class="relay-block">
+      <span class="relay-label">PUMP M1 EBP25</span>
+      <span class="relay-state off" id="rl-pump">STOPPED</span>
+    </div>
+
+    <div class="pump-viz">
+      <div class="pump-label">COOLANT FLOW RATE</div>
+      <div class="flow-bar"><div class="flow-fill off" id="flow-fill" style="width:0%"></div></div>
+      <div class="flow-val" id="flow-val">0.0 L/min</div>
+    </div>
+
+    <div class="sensor-row">
+      <div class="sensor-card">
+        <div class="sensor-name">PS1 PUMP OUTLET</div>
+        <div><span class="sensor-val" id="ps1-v">0.0</span><span class="sensor-unit"> bar</span></div>
+      </div>
+      <div class="sensor-card">
+        <div class="sensor-name">PS2 PACK INLET</div>
+        <div><span class="sensor-val" id="ps2-v">0.0</span><span class="sensor-unit"> bar</span></div>
+      </div>
+    </div>
+    <div style="font-size:8px;color:var(--text3);padding:4px">ΔP (PS1–PS2): <span id="dp-val" style="color:var(--text2)">0.0 bar</span> — flow & filter health indicator</div>
+
+    <div style="background:var(--bg4);border:1px solid var(--border);border-radius:3px;padding:6px;margin-top:6px;font-size:8px;color:var(--text3)">
+      <div>HYSTERESIS: Relay ON at T&gt;42°C | OFF when all cells &lt;35°C</div>
+      <div style="margin-top:3px">FAULT: T&gt;55°C → GP7 HIGH + BUZZER + LED3 RED</div>
+    </div>
+  </div>
+
+  <!-- UART Log -->
+  <div class="panel">
+    <div class="panel-title">UART LOG — GP0 (115200 BAUD)</div>
+    <div class="log-box" id="log-box"></div>
+  </div>
+
+</div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════
+// SIMULATION STATE
+// ══════════════════════════════════════════════════
+const N = 92;
+const RELAY_ON_TEMP = 42;
+const RELAY_OFF_TEMP = 35;
+const FAULT_TEMP = 55;
+const SCAN_INTERVAL_MS = 500;
+const HISTORY_LEN = 120;
+
+let cells = new Array(N).fill(0).map((_,i) => ({
+  id: i+1,
+  temp: 22 + Math.random()*4,
+  baseTemp: 22 + Math.random()*4,
+}));
+
+let state = {
+  relayOn: false,
+  faultActive: false,
+  simTime: 0,
+  pumpFlow: 0,
+  ps1: 0, ps2: 0,
+  muxPhase: 0,
+  scanChannel: 0,
+  selectedCell: 0,
+  heatRate: 0.5,
+  ambient: 25,
+  spread: 1.5,
+};
+
+let history = {
+  max: [], avg: [], min: [], relay: [], flow: [],
+  timestamps: []
+};
+
+let simTimer = null;
+let scopeCtx = null;
+let relayCtx = null;
+
+// ══════════════════════════════════════════════════
+// CELL GRID INIT
+// ══════════════════════════════════════════════════
+function initCellGrid() {
+  const grid = document.getElementById('cell-grid');
+  grid.innerHTML = '';
+  for (let i = 0; i < N; i++) {
+    const d = document.createElement('div');
+    d.className = 'cell temp-2';
+    d.id = 'cell-' + i;
+    d.title = 'Cell #' + (i+1);
+    const lbl = document.createElement('div');
+    lbl.className = 'cell-label';
+    lbl.textContent = (i+1);
+    d.appendChild(lbl);
+    d.addEventListener('click', () => selectCell(i));
+    grid.appendChild(d);
+  }
+}
+
+function tempClass(t) {
+  if (t < 20) return 'temp-0';
+  if (t < 25) return 'temp-1';
+  if (t < 30) return 'temp-2';
+  if (t < 35) return 'temp-3';
+  if (t < 40) return 'temp-4';
+  if (t < 45) return 'temp-5';
+  if (t < 50) return 'temp-6';
+  if (t < 55) return 'temp-7';
+  return 'temp-8';
+}
+
+function tempBarColor(t) {
+  if (t < 30) return '#4080ff';
+  if (t < 37) return '#00d084';
+  if (t < 42) return '#ffb020';
+  if (t < 50) return '#ff8020';
+  return '#ff4040';
+}
+
+// ══════════════════════════════════════════════════
+// PHYSICS: NTC STEINHART-HART
+// ══════════════════════════════════════════════════
+function ntcResistance(tempC) {
+  const T = tempC + 273.15;
+  const T0 = 298.15; // 25°C
+  const R0 = 10000;  // 10kΩ
+  const B = 3950;
+  return R0 * Math.exp(B * (1/T - 1/T0));
+}
+
+function ntcVoltage(tempC) {
+  const Rntc = ntcResistance(tempC);
+  const Rpull = 10000;
+  const Vcc = 3.3;
+  return Vcc * Rntc / (Rntc + Rpull);
+}
+
+// ══════════════════════════════════════════════════
+// SELECT CELL
+// ══════════════════════════════════════════════════
+function selectCell(i) {
+  document.querySelectorAll('.cell').forEach(c => c.classList.remove('selected'));
+  document.getElementById('cell-' + i).classList.add('selected');
+  state.selectedCell = i;
+  updateCellDetail(i);
+}
+
+function updateCellDetail(i) {
+  const c = cells[i];
+  const t = c.temp;
+  const muxChip = Math.floor(i/16);
+  const muxCh = i % 16;
+  const Rntc = ntcResistance(t);
+  const Vadc = ntcVoltage(t);
+  const row = String.fromCharCode(65 + Math.floor(i/12));
+  const col = (i%12)+1;
+  document.getElementById('cd-title').textContent = `CELL #${String(i+1).padStart(2,'0')} — ROW ${row}, COL ${col}`;
+  document.getElementById('cd-ntcref').textContent = `T${i+1}`;
+  document.getElementById('cd-temp').textContent = `${t.toFixed(1)} °C`;
+  document.getElementById('cd-ntcr').textContent = `${(Rntc/1000).toFixed(2)} kΩ`;
+  document.getElementById('cd-adc').textContent = `${Vadc.toFixed(3)} V`;
+  document.getElementById('cd-mux').textContent = `U${muxChip+2}, CH${muxCh}`;
+  const st = t >= FAULT_TEMP ? 'FAULT — OVER TEMP' : t >= RELAY_ON_TEMP ? 'WARNING — COOLING' : t >= 35 ? 'WARM — NORMAL' : 'NORMAL';
+  document.getElementById('cd-status').textContent = st;
+  document.getElementById('cd-status').style.color = t >= FAULT_TEMP ? 'var(--red)' : t >= RELAY_ON_TEMP ? 'var(--amber)' : 'var(--green)';
+  // mini schematic
+  document.getElementById('ms-vadcval').textContent = `Vadc = ${Vadc.toFixed(3)}V`;
+  document.getElementById('ms-rntcval').textContent = `Rntc = ${(Rntc/1000).toFixed(2)}kΩ`;
+  document.getElementById('ms-tempval').textContent = `T = ${t.toFixed(1)}°C`;
+}
+
+// ══════════════════════════════════════════════════
+// MAIN SIMULATION TICK
+// ══════════════════════════════════════════════════
+function tick() {
+  state.simTime += 0.5;
+
+  // Physics: heat cells
+  const hr = state.heatRate;
+  const cooling = state.relayOn ? 1.8 : 0.05; // W/cell effective
+
+  for (let i = 0; i < N; i++) {
+    const spread = (Math.random() - 0.5) * 0.4 * state.spread;
+    const heatInput = hr * (0.8 + Math.random()*0.4) * 0.5;
+    const coolLoss = cooling * 0.5 + (cells[i].temp - state.ambient) * 0.01;
+    cells[i].temp += heatInput - coolLoss + spread;
+    cells[i].temp = Math.max(state.ambient - 2, cells[i].temp);
+  }
+
+  // Relay logic with hysteresis
+  const maxTemp = Math.max(...cells.map(c => c.temp));
+  const allBelow35 = cells.every(c => c.temp < RELAY_OFF_TEMP);
+
+  if (!state.relayOn && maxTemp >= RELAY_ON_TEMP) {
+    state.relayOn = true;
+    log(`RELAY RLY1 ENERGIZED — GP6=HIGH — MAX TEMP ${maxTemp.toFixed(1)}°C ≥ 42°C`, 'warn');
+    log(`Q1 MOSFET: VGS=3.3V → DRAIN CONDUCTS → RELAY COIL 12V ACTIVATED`, 'cool');
+    log(`PUMP M1 EBP25 STARTED — COOLANT FLOW COMMENCING`, 'ok');
+  }
+  if (state.relayOn && allBelow35) {
+    state.relayOn = false;
+    log(`ALL CELLS < 35°C — HYSTERESIS SATISFIED — RELAY OFF`, 'ok');
+    log(`GP6=LOW → Q1 OFF → RELAY COIL DE-ENERGIZED → PUMP STOPPED`, 'info');
+  }
+
+  // Fault detection
+  const faultCell = cells.findIndex(c => c.temp >= FAULT_TEMP);
+  if (faultCell >= 0 && !state.faultActive) {
+    state.faultActive = true;
+    log(`⚠ OVER-TEMP FAULT: CELL #${faultCell+1} = ${cells[faultCell].temp.toFixed(1)}°C ≥ 55°C`, 'alarm');
+    log(`GP7=HIGH → BUZZER BZ1 ACTIVE → LED3 RED → UART FAULT CODE F-01`, 'alarm');
+    document.getElementById('fault-banner').classList.add('show');
+    document.getElementById('fault-sub').textContent = `Cell #${faultCell+1} T=${cells[faultCell].temp.toFixed(1)}°C. Relay stays ON. Pump continues. UART fault logged.`;
+  }
+  if (faultCell < 0 && state.faultActive) {
+    state.faultActive = false;
+    document.getElementById('fault-banner').classList.remove('show');
+    log(`FAULT CLEARED — All cells below 55°C`, 'ok');
+  }
+
+  // Pump flow & pressure simulation
+  if (state.relayOn) {
+    state.pumpFlow = Math.min(25, state.pumpFlow + 2.5);
+    state.ps1 = 2.5 + Math.random() * 0.3;
+    state.ps2 = 1.8 + Math.random() * 0.2;
+  } else {
+    state.pumpFlow = Math.max(0, state.pumpFlow - 3);
+    state.ps1 = Math.max(0, state.ps1 - 0.3);
+    state.ps2 = Math.max(0, state.ps2 - 0.25);
+  }
+
+  // MUX scanning cycle (simulate)
+  state.muxPhase = (state.muxPhase + 1) % 6;
+  state.scanChannel = (state.scanChannel + 1) % N;
+
+  // Record history
+  const avg = cells.reduce((s,c) => s+c.temp, 0) / N;
+  const minT = Math.min(...cells.map(c => c.temp));
+  history.max.push(maxTemp);
+  history.avg.push(avg);
+  history.min.push(minT);
+  history.relay.push(state.relayOn ? 1 : 0);
+  history.flow.push(state.pumpFlow);
+  if (history.max.length > HISTORY_LEN) {
+    history.max.shift(); history.avg.shift(); history.min.shift();
+    history.relay.shift(); history.flow.shift();
+  }
+
+  // Update all UI
+  updateCellGrid(maxTemp, avg, minT);
+  updateMetrics(maxTemp, avg, minT);
+  updateRelayUI();
+  updatePicoUI();
+  updateFlowDiagram();
+  updateScopes();
+  updateSelectedCell();
+  updateMuxUI();
+  updateClock();
+}
+
+function updateCellGrid(maxT, avgT, minT) {
+  for (let i = 0; i < N; i++) {
+    const el = document.getElementById('cell-' + i);
+    if (!el) continue;
+    const tc = tempClass(cells[i].temp);
+    el.className = 'cell ' + tc + (i === state.selectedCell ? ' selected' : '');
+  }
+  // Scan indicator
+  document.getElementById('scan-cell-lbl').textContent = `SCANNING CH: ${String(state.scanChannel+1).padStart(2,'0')}`;
+
+  // Bars
+  const MAX = 60;
+  document.getElementById('tmin-val').textContent = minT.toFixed(1) + '°C';
+  document.getElementById('tmin-bar').style.width = (minT/MAX*100).toFixed(0) + '%';
+  document.getElementById('tmin-bar').style.background = tempBarColor(minT);
+
+  document.getElementById('tavg-val').textContent = avgT.toFixed(1) + '°C';
+  document.getElementById('tavg-bar').style.width = (avgT/MAX*100).toFixed(0) + '%';
+  document.getElementById('tavg-bar').style.background = tempBarColor(avgT);
+
+  document.getElementById('tmax-val').textContent = maxT.toFixed(1) + '°C';
+  document.getElementById('tmax-bar').style.width = (maxT/MAX*100).toFixed(0) + '%';
+  document.getElementById('tmax-bar').style.background = tempBarColor(maxT);
+
+  const hotCount = cells.filter(c => c.temp > 40).length;
+  document.getElementById('thot-val').textContent = hotCount;
+  document.getElementById('thot-bar').style.width = (hotCount/N*100).toFixed(0) + '%';
+}
+
+function updateMetrics(maxT, avgT, minT) {
+  const m_max = document.getElementById('m-maxtemp');
+  document.getElementById('m-maxtemp-v').textContent = maxT.toFixed(1);
+  if (maxT >= FAULT_TEMP) {
+    m_max.className = 'metric alarm';
+    document.getElementById('m-maxtemp-s').textContent = 'FAULT — OVER 55°C GP7 HIGH';
+  } else if (maxT >= RELAY_ON_TEMP) {
+    m_max.className = 'metric warn';
+    document.getElementById('m-maxtemp-s').textContent = 'COOLING ACTIVE — ≥42°C';
+  } else {
+    m_max.className = 'metric';
+    document.getElementById('m-maxtemp-s').textContent = 'Threshold: 42°C relay ON';
+  }
+
+  document.getElementById('m-avgtemp-v').textContent = avgT.toFixed(1);
+  document.getElementById('m-avgtemp').className = avgT > 38 ? 'metric warn' : 'metric';
+
+  document.getElementById('m-relay-v').textContent = state.relayOn ? 'ON' : 'OFF';
+  document.getElementById('m-relay').className = state.relayOn ? 'metric active' : 'metric';
+
+  document.getElementById('m-pump-v').textContent = state.pumpFlow.toFixed(1);
+  document.getElementById('m-pump').className = state.relayOn ? 'metric cool' : 'metric';
+  document.getElementById('m-pump-s').textContent = state.relayOn ? `RUNNING — ${state.pumpFlow.toFixed(1)} L/min` : '12V DC — max 25 L/min';
+}
+
+function updateRelayUI() {
+  const on = state.relayOn;
+  const fault = state.faultActive;
+
+  ['rl-q1','rl-coil','rl-contact','rl-pump'].forEach(id => {
+    const el = document.getElementById(id);
+    el.className = 'relay-state ' + (on ? 'on' : 'off');
+  });
+  document.getElementById('rl-q1').textContent = on ? 'CONDUCTING (VGS=3.3V)' : 'OFF (0V)';
+  document.getElementById('rl-coil').textContent = on ? 'ENERGIZED (12V)' : 'DE-ENERGIZED';
+  document.getElementById('rl-contact').textContent = on ? 'CLOSED (12V → PUMP)' : 'OPEN';
+  document.getElementById('rl-pump').textContent = on ? `RUNNING (${state.pumpFlow.toFixed(1)} L/min)` : 'STOPPED';
+
+  const ff = document.getElementById('flow-fill');
+  if (on) {
+    ff.classList.remove('off');
+    ff.style.width = (state.pumpFlow / 25 * 100).toFixed(0) + '%';
+  } else {
+    ff.classList.add('off');
+    ff.style.width = (state.pumpFlow / 25 * 100).toFixed(0) + '%';
+  }
+  document.getElementById('flow-val').textContent = state.pumpFlow.toFixed(1) + ' L/min';
+
+  document.getElementById('ps1-v').textContent = state.ps1.toFixed(2);
+  document.getElementById('ps2-v').textContent = state.ps2.toFixed(2);
+  document.getElementById('dp-val').textContent = Math.abs(state.ps1 - state.ps2).toFixed(2) + ' bar';
+
+  // LED2 (pump active)
+  document.getElementById('gp9-v').textContent = on ? 'HIGH' : 'LOW';
+  document.getElementById('gp-gp9').className = 'gp-pin' + (on ? ' high' : '');
+
+  // LED3 fault
+  document.getElementById('gp10-v').textContent = fault ? 'HIGH' : 'LOW';
+  document.getElementById('gp-gp10').className = 'gp-pin' + (fault ? ' high' : '');
+
+  // OLED
+  const maxT = Math.max(...cells.map(c => c.temp));
+  const avg = cells.reduce((s,c)=>s+c.temp,0)/N;
+  document.getElementById('oled-l2').textContent = `MAX: ${maxT.toFixed(1)}\u00B0C`;
+  document.getElementById('oled-l3').textContent = `AVG: ${avg.toFixed(1)}\u00B0C`;
+  document.getElementById('oled-l4').textContent = `PUMP: ${on ? 'RUNNING' : 'OFF'}`;
+  document.getElementById('oled-l5').textContent = `RELAY: ${on ? 'CLOSED' : 'OPEN'}`;
+
+  // sys header
+  if (fault) {
+    document.getElementById('sys-dot').style.background = 'var(--red)';
+    document.getElementById('sys-status').textContent = 'FAULT ACTIVE';
+  } else if (on) {
+    document.getElementById('sys-dot').style.background = 'var(--amber)';
+    document.getElementById('sys-status').textContent = 'COOLING ACTIVE';
+  } else {
+    document.getElementById('sys-dot').style.background = 'var(--green)';
+    document.getElementById('sys-status').textContent = 'SYSTEM NOMINAL';
+  }
+  document.getElementById('pump-dot').style.background = on ? 'var(--cyan)' : 'var(--text3)';
+  document.getElementById('pump-status').textContent = on ? 'PUMP RUNNING' : 'PUMP OFF';
+}
+
+function updatePicoUI() {
+  const adc0 = ntcVoltage(cells[state.scanChannel].temp);
+  document.getElementById('gp4-v').textContent = adc0.toFixed(3)+'V';
+  const ps1v = (state.ps1/10*4 + 1).toFixed(3);
+  document.getElementById('gp5-v').textContent = ps1v+'V';
+  document.getElementById('gp6-v').textContent = state.relayOn ? 'HIGH' : 'LOW';
+  document.getElementById('gp-gp6').className = 'gp-pin' + (state.relayOn ? ' high' : '');
+  document.getElementById('gp7-v').textContent = state.faultActive ? 'HIGH' : 'LOW';
+  document.getElementById('gp-gp7').className = 'gp-pin' + (state.faultActive ? ' high' : '');
+  document.getElementById('gp11-v').textContent = 'U'+(state.muxPhase+2);
+  document.getElementById('gp-gp11').className = 'gp-pin active-mux';
+
+  // GP8 always high (power LED)
+  document.getElementById('gp-gp8').className = 'gp-pin high';
+}
+
+function updateFlowDiagram() {
+  const on = state.relayOn;
+  const maxT = Math.max(...cells.map(c => c.temp));
+  const avg = cells.reduce((s,c)=>s+c.temp,0)/N;
+
+  const pipeClass = on ? 'pipecool' : 'pipeoff';
+  const hotPipeClass = on ? 'pipehot' : 'pipeoff';
+  ['pipe-hot1','pipe-hot2'].forEach(id => document.getElementById(id).setAttribute('class', hotPipeClass));
+  ['pipe-cool1','pipe-cool2'].forEach(id => document.getElementById(id).setAttribute('class', pipeClass));
+
+  document.getElementById('pump-lbl1').setAttribute('fill', on ? '#00c8e0' : '#8892b0');
+  document.getElementById('pump-lbl2').textContent = on ? `${state.pumpFlow.toFixed(1)} L/min` : 'OFF';
+  document.getElementById('pump-lbl2').setAttribute('fill', on ? '#00c8e0' : '#4a5580');
+  document.getElementById('pump-box').setAttribute('stroke', on ? '#00c8e0' : '#3a4470');
+
+  document.getElementById('diag-relay').textContent = on ? 'GP6 HIGH' : 'GP6 LOW';
+  document.getElementById('diag-relay').setAttribute('fill', on ? '#00d084' : '#4a5580');
+  document.getElementById('relay-box-diag').setAttribute('stroke', on ? '#00d084' : '#3a4470');
+  document.getElementById('relay-sig').setAttribute('stroke', on ? '#00d084' : '#4a5580');
+
+  document.getElementById('diag-ps1').textContent = state.ps1.toFixed(2)+'b';
+  document.getElementById('diag-ps2').textContent = state.ps2.toFixed(2)+'b';
+  document.getElementById('pack-tempbig').textContent = `AVG ${avg.toFixed(1)}\u00B0C`;
+}
+
+function updateMuxUI() {
+  for (let i = 0; i < 6; i++) {
+    const el = document.getElementById('mux-' + i);
+    el.className = 'mux-chip' + (i === state.muxPhase ? ' scanning' : '');
+    el.textContent = 'U'+(i+2) + (i === state.muxPhase ? ' \u25BA' : '');
+  }
+}
+
+function updateSelectedCell() {
+  if (state.selectedCell >= 0) updateCellDetail(state.selectedCell);
+}
+
+function updateClock() {
+  const t = state.simTime;
+  const m = Math.floor(t / 60);
+  const s = Math.floor(t % 60);
+  document.getElementById('sim-clock').textContent = `T+${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+// ══════════════════════════════════════════════════
+// SCOPE CANVASES
+// ══════════════════════════════════════════════════
+function initScopes() {
+  const sc = document.getElementById('scope-canvas');
+  const rc = document.getElementById('relay-canvas');
+  sc.width = sc.offsetWidth * window.devicePixelRatio;
+  sc.height = 120 * window.devicePixelRatio;
+  rc.width = rc.offsetWidth * window.devicePixelRatio;
+  rc.height = 120 * window.devicePixelRatio;
+  scopeCtx = sc.getContext('2d');
+  relayCtx = rc.getContext('2d');
+  scopeCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  relayCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+}
+
+function updateScopes() {
+  if (!scopeCtx) return;
+  const sc = document.getElementById('scope-canvas');
+  const rc = document.getElementById('relay-canvas');
+  const W = sc.offsetWidth, H = 120;
+  const RW = rc.offsetWidth;
+
+  // ── TEMP SCOPE ──
+  scopeCtx.clearRect(0,0,W,H);
+  scopeCtx.fillStyle = '#0d0f14';
+  scopeCtx.fillRect(0,0,W,H);
+  // grid lines
+  scopeCtx.strokeStyle = '#1a1e2b';
+  scopeCtx.lineWidth = 0.5;
+  for (let y = 0; y <= H; y += H/4) {
+    scopeCtx.beginPath(); scopeCtx.moveTo(0,y); scopeCtx.lineTo(W,y); scopeCtx.stroke();
+  }
+  for (let x = 0; x <= W; x += W/6) {
+    scopeCtx.beginPath(); scopeCtx.moveTo(x,0); scopeCtx.lineTo(x,H); scopeCtx.stroke();
+  }
+  // threshold lines
+  const yOf = (t) => H - (t / 60 * H);
+  scopeCtx.setLineDash([4,3]);
+  scopeCtx.strokeStyle = 'rgba(255,64,64,0.4)';
+  scopeCtx.lineWidth = 0.8;
+  scopeCtx.beginPath(); scopeCtx.moveTo(0,yOf(55)); scopeCtx.lineTo(W,yOf(55)); scopeCtx.stroke();
+  scopeCtx.strokeStyle = 'rgba(255,176,32,0.4)';
+  scopeCtx.beginPath(); scopeCtx.moveTo(0,yOf(42)); scopeCtx.lineTo(W,yOf(42)); scopeCtx.stroke();
+  scopeCtx.strokeStyle = 'rgba(0,200,224,0.3)';
+  scopeCtx.beginPath(); scopeCtx.moveTo(0,yOf(35)); scopeCtx.lineTo(W,yOf(35)); scopeCtx.stroke();
+  scopeCtx.setLineDash([]);
+  // labels
+  scopeCtx.fillStyle = 'rgba(255,64,64,0.6)'; scopeCtx.font = '8px Share Tech Mono';
+  scopeCtx.fillText('55°C FAULT', 2, yOf(55)-2);
+  scopeCtx.fillStyle = 'rgba(255,176,32,0.6)';
+  scopeCtx.fillText('42°C RELAY ON', 2, yOf(42)-2);
+  scopeCtx.fillStyle = 'rgba(0,200,224,0.4)';
+  scopeCtx.fillText('35°C RELAY OFF', 2, yOf(35)-2);
+
+  const len = history.max.length;
+  if (len < 2) return;
+  function drawLine(arr, color, lw) {
+    scopeCtx.beginPath();
+    scopeCtx.strokeStyle = color; scopeCtx.lineWidth = lw;
+    for (let i = 0; i < arr.length; i++) {
+      const x = (i / (HISTORY_LEN-1)) * W;
+      const y = yOf(arr[i]);
+      i === 0 ? scopeCtx.moveTo(x,y) : scopeCtx.lineTo(x,y);
+    }
+    scopeCtx.stroke();
+  }
+  drawLine(history.min, '#4080ff', 1);
+  drawLine(history.avg, '#00d084', 1.2);
+  drawLine(history.max, '#ffb020', 1.5);
+
+  // ── RELAY SCOPE ──
+  relayCtx.clearRect(0,0,RW,H);
+  relayCtx.fillStyle = '#0d0f14';
+  relayCtx.fillRect(0,0,RW,H);
+  relayCtx.strokeStyle = '#1a1e2b';
+  relayCtx.lineWidth = 0.5;
+  for (let y = 0; y <= H; y += H/4) {
+    relayCtx.beginPath(); relayCtx.moveTo(0,y); relayCtx.lineTo(RW,y); relayCtx.stroke();
+  }
+
+  if (history.relay.length < 2) return;
+  const h1 = 10, h0 = H*0.55;
+  relayCtx.beginPath();
+  relayCtx.strokeStyle = '#00d084'; relayCtx.lineWidth = 1.5;
+  for (let i = 0; i < history.relay.length; i++) {
+    const x = (i / (HISTORY_LEN-1)) * RW;
+    const y = history.relay[i] ? h1 : h0;
+    i === 0 ? relayCtx.moveTo(x,y) : relayCtx.lineTo(x,y);
+  }
+  relayCtx.stroke();
+  relayCtx.fillStyle = 'rgba(0,208,132,0.07)';
+  relayCtx.beginPath();
+  for (let i = 0; i < history.relay.length; i++) {
+    const x = (i / (HISTORY_LEN-1)) * RW;
+    const y = history.relay[i] ? h1 : h0;
+    i === 0 ? relayCtx.moveTo(x,y) : relayCtx.lineTo(x,y);
+  }
+  relayCtx.lineTo(RW, H); relayCtx.lineTo(0, H); relayCtx.closePath(); relayCtx.fill();
+  relayCtx.fillStyle = 'rgba(0,208,132,0.7)'; relayCtx.font = '8px Share Tech Mono';
+  relayCtx.fillText('GP6 HIGH', 2, h1+12);
+  relayCtx.fillStyle = 'rgba(74,85,128,0.9)';
+  relayCtx.fillText('GP6 LOW', 2, h0-4);
+
+  // Flow rate overlay
+  relayCtx.beginPath();
+  relayCtx.strokeStyle = '#00c8e0'; relayCtx.lineWidth = 1;
+  for (let i = 0; i < history.flow.length; i++) {
+    const x = (i / (HISTORY_LEN-1)) * RW;
+    const y = H - (history.flow[i] / 25 * H * 0.4) - 5;
+    i === 0 ? relayCtx.moveTo(x,y) : relayCtx.lineTo(x,y);
+  }
+  relayCtx.stroke();
+  relayCtx.fillStyle = 'rgba(0,200,224,0.7)'; relayCtx.font = '8px Share Tech Mono';
+  relayCtx.fillText('FLOW', 2, H-8);
+}
+
+// ══════════════════════════════════════════════════
+// UART LOG
+// ══════════════════════════════════════════════════
+let logLines = [];
+function log(msg, type='info') {
+  const t = state.simTime;
+  const m = Math.floor(t/60);
+  const s = (t%60).toFixed(1);
+  const ts = `${String(m).padStart(2,'0')}:${String(s).padStart(4,'0')}`;
+  logLines.push({ts, msg, type});
+  if (logLines.length > 200) logLines.shift();
+  const box = document.getElementById('log-box');
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = `<span class="log-time">[${ts}]</span><span class="log-msg log-${type}">${msg}</span>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  // keep max 80 dom nodes
+  while (box.children.length > 80) box.removeChild(box.firstChild);
+}
+
+// ══════════════════════════════════════════════════
+// CONTROLS
+// ══════════════════════════════════════════════════
+document.getElementById('ctrl-heatrate').addEventListener('input', function() {
+  state.heatRate = parseFloat(this.value);
+  document.getElementById('ctrl-heatrate-v').textContent = '+' + this.value + '°C/s';
+});
+document.getElementById('ctrl-ambient').addEventListener('input', function() {
+  state.ambient = parseInt(this.value);
+  document.getElementById('ctrl-ambient-v').textContent = this.value + '°C';
+});
+document.getElementById('ctrl-spread').addEventListener('input', function() {
+  state.spread = parseFloat(this.value);
+  document.getElementById('ctrl-spread-v').textContent = this.value + '°C';
+});
+
+function injectHotspot() {
+  const hotIdx = Math.floor(Math.random() * N);
+  cells[hotIdx].temp = 43 + Math.random() * 5;
+  const neighbors = [hotIdx-1, hotIdx+1, hotIdx-12, hotIdx+12].filter(i => i >= 0 && i < N);
+  neighbors.forEach(i => { cells[i].temp = Math.max(cells[i].temp, cells[hotIdx].temp - 4 + Math.random()*2); });
+  log(`HOTSPOT INJECTED: CELL #${hotIdx+1} = ${cells[hotIdx].temp.toFixed(1)}°C`, 'warn');
+  selectCell(hotIdx);
+}
+
+function triggerFault() {
+  const idx = Math.floor(Math.random() * N);
+  cells[idx].temp = 57 + Math.random() * 3;
+  log(`FAULT INJECTED: CELL #${idx+1} = ${cells[idx].temp.toFixed(1)}°C`, 'alarm');
+  selectCell(idx);
+}
+
+function resetSim() {
+  cells.forEach((c,i) => { c.temp = 22 + Math.random()*4; });
+  state.relayOn = false;
+  state.faultActive = false;
+  state.pumpFlow = 0;
+  state.ps1 = 0; state.ps2 = 0;
+  history.max = []; history.avg = []; history.min = [];
+  history.relay = []; history.flow = [];
+  document.getElementById('fault-banner').classList.remove('show');
+  log('SIMULATION RESET — All cells nominal', 'ok');
+}
+
+function quickCool() {
+  cells.forEach(c => { c.temp = Math.max(state.ambient - 2, c.temp - 15); });
+  log('FORCE COOL APPLIED — All cells dropped', 'cool');
+}
+
+// ══════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  initCellGrid();
+  selectCell(0);
+  setTimeout(initScopes, 100);
+  window.addEventListener('resize', initScopes);
+
+  log('BMS BOOT: Raspberry Pi Pico RP2040 initializing...', 'info');
+  log('FLASH: 2MB · RAM: 264KB · SYS CLK: 125MHz', 'info');
+  setTimeout(() => log('I2C SSD1306 OLED detected at 0x3C — OK', 'ok'), 200);
+  setTimeout(() => log('MUX U2–U7 CD74HC4067 scan pass — 96 channels mapped', 'ok'), 400);
+  setTimeout(() => log('NTC array T1–T92 baseline read complete', 'ok'), 600);
+  setTimeout(() => log('Pressure sensors PS1/PS2 ADC calibrated (250Ω shunt)', 'ok'), 800);
+  setTimeout(() => log('GP6 RELAY driver armed — 2N7000 MOSFET standby', 'ok'), 1000);
+  setTimeout(() => log('BMS THERMAL MANAGEMENT SYSTEM RUNNING — SCAN INTERVAL 500ms', 'ok'), 1200);
+  setTimeout(() => log('THRESHOLDS: RELAY ON ≥42°C | OFF <35°C | FAULT ≥55°C', 'info'), 1400);
+
+  simTimer = setInterval(tick, 500);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<h2 class="sr-only">3D EV BMS simulation with open battery pack showing internal coolant flow through cells, with correctly spaced components and animated coolant particles throughout the full loop.</h2>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+#wrapper{position:relative;width:100%;height:560px;overflow:hidden;background:#060810}
+#c3d{width:100%;height:480px;display:block;cursor:grab}
+#c3d:active{cursor:grabbing}
+#hud{position:absolute;top:8px;left:8px;pointer-events:none;z-index:10;display:flex;flex-direction:column;gap:3px}
+.hpill{background:rgba(6,8,16,0.88);border:1px solid #1e2840;border-radius:3px;padding:3px 9px;font-size:9px;letter-spacing:1.5px;font-family:monospace;display:flex;align-items:center;gap:7px;color:#9aabcc}
+.dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+#legend{position:absolute;top:8px;right:8px;pointer-events:none;z-index:10}
+.leg{background:rgba(6,8,16,0.88);border:1px solid #1e2840;border-radius:3px;padding:6px 10px;font-size:8px;letter-spacing:1px;font-family:monospace;line-height:2;color:#9aabcc}
+.leg div{display:flex;align-items:center;gap:6px}
+#ctrlbar{background:rgba(6,8,16,0.95);border-top:1px solid #131826;padding:7px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:9px;letter-spacing:1.5px;font-family:monospace;color:#7a8baa}
+.cg{display:flex;align-items:center;gap:5px}
+.cg label{color:#556070;min-width:55px}
+.cg input[type=range]{accent-color:#00c8e0;width:70px;height:3px}
+.cg span{min-width:28px;color:#aabbd0}
+.btn{background:#0e1220;border:1px solid #1e2840;color:#9aabcc;padding:4px 10px;font-family:monospace;font-size:9px;letter-spacing:1.5px;cursor:pointer;border-radius:2px;transition:border-color 0.2s}
+.btn:hover{border-color:#4080ff;color:#4080ff}
+.btn.danger:hover{border-color:#ff4040;color:#ff4040}
+.btn.warn:hover{border-color:#ffb020;color:#ffb020}
+#infobar{flex:1;color:#3a4560;font-size:9px;letter-spacing:1px;font-family:monospace;overflow:hidden;white-space:nowrap}
+</style>
+
+<div id="wrapper">
+  <canvas id="c3d"></canvas>
+  <div id="hud">
+    <div class="hpill"><span class="dot" style="background:#00d084"></span>PICO RP2040 RUNNING</div>
+    <div class="hpill"><span class="dot" id="rdot" style="background:#2a3050"></span>RELAY <span id="rtxt" style="color:#2a3050">OFF</span></div>
+    <div class="hpill"><span class="dot" id="pdot" style="background:#2a3050"></span>PUMP <span id="ptxt" style="color:#2a3050">IDLE</span></div>
+    <div class="hpill"><span class="dot" style="background:#ffb020"></span>MAX TEMP <span id="tmax">22.0</span>°C</div>
+    <div class="hpill"><span class="dot" style="background:#00c8e0"></span>FLOW <span id="fval">0.0</span> L/min</div>
+  </div>
+  <div id="legend">
+    <div class="leg">
+      <div><span class="dot" style="background:#00d084"></span>Nominal &lt;35°C</div>
+      <div><span class="dot" style="background:#ffb020"></span>Warm 35–42°C</div>
+      <div><span class="dot" style="background:#ff6020"></span>Hot 42–55°C</div>
+      <div><span class="dot" style="background:#ff2020"></span>FAULT &gt;55°C</div>
+      <div style="margin-top:4px"><span class="dot" style="background:#2266aa"></span>Cold coolant</div>
+      <div><span class="dot" style="background:#cc3311"></span>Hot coolant</div>
+    </div>
+  </div>
+</div>
+<div id="ctrlbar">
+  <div class="cg"><label>HEAT</label><input type="range" id="hr" min="0" max="3" step="0.1" value="0.3"><span id="hrv">0.3°/s</span></div>
+  <div class="cg"><label>AMBIENT</label><input type="range" id="amb" min="10" max="45" step="1" value="25"><span id="ambv">25°C</span></div>
+  <button class="btn warn" onclick="injectHot()">HOTSPOT</button>
+  <button class="btn danger" onclick="injectFault()">FAULT</button>
+  <button class="btn" onclick="resetSim()">RESET</button>
+  <button class="btn" onclick="forceCool()">FORCE COOL</button>
+  <div id="infobar">▶ DRAG orbit · SCROLL zoom · System ready</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const WRP = document.getElementById('wrapper');
+let W = WRP.clientWidth, H = 480;
+const canvas = document.getElementById('c3d');
+
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setSize(W,H);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.shadowMap.enabled = true;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x060810);
+scene.fog = new THREE.Fog(0x060810, 80, 160);
+
+const camera = new THREE.PerspectiveCamera(42, W/H, 0.1, 250);
+// Good angle to see inside the pack
+let theta = 0.6, phi = 0.72, radius = 52;
+
+// Lights
+scene.add(new THREE.AmbientLight(0x223355, 0.9));
+const dir = new THREE.DirectionalLight(0x7799cc, 1.3);
+dir.position.set(20, 30, 15); dir.castShadow = true;
+dir.shadow.mapSize.set(1024,1024); scene.add(dir);
+const rim = new THREE.PointLight(0x00c8e0, 0.6, 60);
+rim.position.set(-15, 10, -10); scene.add(rim);
+const packLight = new THREE.PointLight(0x00ffaa, 0.4, 20);
+packLight.position.set(0, 6, 0); scene.add(packLight);
+
+// Grid
+scene.add(new THREE.GridHelper(100, 40, 0x111828, 0x080c18));
+
+// ── helpers ──
+function box(w,h,d,mat,x,y,z,rx=0,ry=0,rz=0){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+  m.position.set(x,y,z); m.rotation.set(rx,ry,rz);
+  m.castShadow=true; m.receiveShadow=true; scene.add(m); return m;
+}
+function cyl(rt,rb,h,seg,mat,x,y,z,rx=0,ry=0,rz=0){
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,seg), mat);
+  m.position.set(x,y,z); m.rotation.set(rx,ry,rz);
+  m.castShadow=true; scene.add(m); return m;
+}
+function tube(pts, r, mat){
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const m = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, r, 8, false), mat);
+  m.castShadow=true; scene.add(m); return m;
+}
+function V(x,y,z){return new THREE.Vector3(x,y,z);}
+
+// ── Materials ──
+const mat = {
+  chassis: new THREE.MeshStandardMaterial({color:0x111828,roughness:0.7,metalness:0.4}),
+  chassisOpen: new THREE.MeshStandardMaterial({color:0x1a2440,roughness:0.6,metalness:0.5,side:THREE.DoubleSide}),
+  steel: new THREE.MeshStandardMaterial({color:0x445566,roughness:0.3,metalness:0.8}),
+  pico: new THREE.MeshStandardMaterial({color:0x1e6632,roughness:0.5,metalness:0.1}),
+  relay: new THREE.MeshStandardMaterial({color:0x1a2a55,roughness:0.4,metalness:0.5}),
+  pump: new THREE.MeshStandardMaterial({color:0x2a3a4a,roughness:0.3,metalness:0.7}),
+  tank: new THREE.MeshStandardMaterial({color:0x0e2a44,roughness:0.3,metalness:0.3,transparent:true,opacity:0.65,side:THREE.DoubleSide}),
+  tankWater: new THREE.MeshStandardMaterial({color:0x1a5a88,transparent:true,opacity:0.4}),
+  radiator: new THREE.MeshStandardMaterial({color:0x334455,roughness:0.6,metalness:0.5}),
+  fin: new THREE.MeshStandardMaterial({color:0x556677,roughness:0.4,metalness:0.6}),
+  pipeHot: new THREE.MeshStandardMaterial({color:0xaa3311,roughness:0.4,metalness:0.5}),
+  pipeCold: new THREE.MeshStandardMaterial({color:0x1a4488,roughness:0.4,metalness:0.5}),
+  pipeInt: new THREE.MeshStandardMaterial({color:0x1a6688,roughness:0.4,metalness:0.5}), // internal pack coolant
+  wire_y: new THREE.MeshStandardMaterial({color:0xddcc00,roughness:0.8}),
+  wire_r: new THREE.MeshStandardMaterial({color:0xcc2222,roughness:0.8}),
+  wire_b: new THREE.MeshStandardMaterial({color:0x2244cc,roughness:0.8}),
+  ledOn: new THREE.MeshStandardMaterial({color:0x00ff88,emissive:0x00ff88,emissiveIntensity:1}),
+  ledOff: new THREE.MeshStandardMaterial({color:0x112211}),
+  manifold: new THREE.MeshStandardMaterial({color:0x1a3a5a,roughness:0.3,metalness:0.6}),
+  coolantPlate: new THREE.MeshStandardMaterial({color:0x0a2a44,roughness:0.3,metalness:0.5,transparent:true,opacity:0.55}),
+};
+
+// ════════════════════════════════════════════
+// LAYOUT — well spaced, clear sight lines
+// PACK: center (0,0,0)
+// PICO: far left back  (-26, *, -8)
+// RELAY: left back     (-18, *, -8)
+// PUMP: left mid       (-18, *, 4)
+// TANK: far left front (-26, *, 14)
+// RADIATOR: far back   (8,  *, -20)
+// ════════════════════════════════════════════
+
+// ── BATTERY PACK (no top lid, open top) ──
+const PX=0, PY=0, PZ=0;
+const PW=15, PD=11, PH=5;
+
+// Bottom plate
+box(PW, 0.4, PD, mat.chassis, PX, PY+0.2, PZ);
+// Side walls (4 sides, no top)
+box(0.4, PH, PD, mat.chassisOpen, PX-PW/2, PY+PH/2, PZ);  // left
+box(0.4, PH, PD, mat.chassisOpen, PX+PW/2, PY+PH/2, PZ);  // right
+box(PW, PH, 0.4, mat.chassisOpen, PX, PY+PH/2, PZ-PD/2);  // back
+box(PW, PH, 0.4, mat.chassisOpen, PX, PY+PH/2, PZ+PD/2);  // front
+// Corner pillars
+const corners = [[-PW/2+0.4,-PD/2+0.4],[PW/2-0.4,-PD/2+0.4],[PW/2-0.4,PD/2-0.4],[-PW/2+0.4,PD/2-0.4]];
+corners.forEach(([cx,cz])=>box(0.5,PH,0.5,mat.steel,PX+cx,PY+PH/2,PZ+cz));
+
+// ── INTERNAL COOLANT MANIFOLDS (inside pack, bottom) ──
+// Inlet manifold (right side, runs front-back)
+box(0.5, 0.4, PD-1, mat.manifold, PX+PW/2-1.2, PY+0.7, PZ);
+// Outlet manifold (left side)
+box(0.5, 0.4, PD-1, mat.manifold, PX-PW/2+1.2, PY+0.7, PZ);
+// Coolant plates between cell rows (3 cross-plates)
+for(let i=-1;i<=1;i++){
+  box(PW-2.5, 0.2, 0.35, mat.coolantPlate, PX, PY+0.5, PZ+i*3.0);
+}
+
+// ── 92 CELLS inside pack ──
+const cells = [];
+const COLS=12, ROWS=8;
+const cxStart = PX - 5.6, czStart = PZ - 4.0;
+const cxStep=1.0, czStep=1.0;
+const cornerKeys = new Set(['0,0','0,11','7,0','7,11']);
+for(let r=0;r<ROWS;r++){
+  for(let c=0;c<COLS;c++){
+    if(cornerKeys.has(`${r},${c}`)) continue;
+    const cm = mat.steel.clone();
+    const mesh = cyl(0.19,0.19,3.0,8,cm,
+      cxStart+c*cxStep, PY+PH/2-0.3, czStart+r*czStep);
+    // Cell top cap
+    cyl(0.19,0.25,0.1,8,mat.steel,cxStart+c*cxStep,PY+PH-0.1,czStart+r*czStep);
+    cells.push({mesh, mat:cm, temp:22+Math.random()*3, r, c});
+  }
+}
+
+// Internal flow indicators — thin tubes between manifolds across cells (6 horizontal runs)
+for(let iz=0;iz<6;iz++){
+  const zp = PZ-4.5+iz*1.7;
+  tube([V(PX+PW/2-1.4,PY+0.5,zp), V(PX-PW/2+1.4,PY+0.5,zp)], 0.09, mat.pipeInt);
+}
+
+// ── RASPBERRY PI PICO ──
+const PIX=-26, PIY=0, PIZ=-8;
+box(4.0,0.18,2.2,mat.pico,PIX,PIY+0.9,PIZ);
+box(0.55,0.38,0.28,mat.steel,PIX-1.85,PIY+1.1,PIZ);// USB
+box(0.65,0.12,0.65,mat.chassis,PIX+0.2,PIY+1.06,PIZ);// chip
+for(let i=0;i<10;i++){
+  cyl(0.045,0.045,0.28,6,mat.steel,PIX-1.6+i*0.28,PIY+1.06,PIZ-0.95);
+  cyl(0.045,0.045,0.28,6,mat.steel,PIX-1.6+i*0.28,PIY+1.06,PIZ+0.95);
+}
+const piLed = cyl(0.09,0.09,0.06,8,mat.ledOn,PIX+1.55,PIY+1.06,PIZ+0.65);
+// PCB mounting standoffs
+[[-1.7,-0.9],[1.7,-0.9],[1.7,0.9],[-1.7,0.9]].forEach(([dx,dz])=>
+  cyl(0.1,0.1,0.5,6,mat.steel,PIX+dx,PIY+0.6,PIZ+dz));
+
+// ── RELAY ──
+const RLX=-18, RLY=0, RLZ=-8;
+box(1.8,1.4,1.1,mat.relay,RLX,RLY+0.9,RLZ);
+cyl(0.13,0.13,0.28,8,mat.steel,RLX-0.55,RLY+1.7,RLZ);
+cyl(0.13,0.13,0.28,8,mat.steel,RLX+0.55,RLY+1.7,RLZ);
+box(1.0,0.8,0.55,mat.chassis,RLX+0.2,RLY+0.75,RLZ+0.12);
+const relLed = cyl(0.11,0.11,0.07,8,mat.ledOff,RLX,RLY+1.65,RLZ+0.48);
+// Base
+box(2.0,0.25,1.3,mat.steel,RLX,RLY+0.12,RLZ);
+
+// ── PUMP (EBP25) ──
+const PMX=-18, PMY=0, PMZ=4;
+cyl(1.15,1.15,1.0,16,mat.pump,PMX,PMY+1.0,PMZ);
+cyl(1.28,1.28,0.18,16,mat.steel,PMX,PMY+1.5,PMZ);
+cyl(1.28,1.28,0.18,16,mat.steel,PMX,PMY+0.55,PMZ);
+cyl(0.55,0.55,0.7,8,mat.chassis,PMX,PMY+1.75,PMZ);// motor
+cyl(0.28,0.28,1.2,8,mat.pipeCold,PMX+1.15,PMY+1.0,PMZ,0,0,Math.PI/2);// inlet stub
+cyl(0.28,0.28,1.2,8,mat.pipeCold,PMX,PMY+1.0,PMZ-1.15,Math.PI/2,0,0);// outlet stub
+const pumpSpin = cyl(0.85,0.85,0.06,8,mat.steel,PMX,PMY+1.5,PMZ);
+// Base plate
+box(2.6,0.2,2.2,mat.steel,PMX,PMY+0.1,PMZ);
+
+// ── TANK / RESERVOIR ──
+const TKX=-26, TKY=0, TKZ=14;
+box(4.0,5.0,3.5,mat.tank,TKX,TKY+2.7,TKZ);
+box(4.0,0.3,3.5,mat.steel,TKX,TKY+5.2,TKZ);// cap
+cyl(0.45,0.45,0.6,12,mat.steel,TKX,TKY+5.6,TKZ);// filler
+// Sight glass
+box(0.15,4.5,0.12,new THREE.MeshStandardMaterial({color:0x4488bb,transparent:true,opacity:0.5}),TKX+2.05,TKY+2.7,TKZ+1.76);
+// Water fill (animated)
+const tankWater = box(3.7,3.5,3.2,mat.tankWater,TKX,TKY+2.3,TKZ);
+// Outlet (bottom)
+cyl(0.22,0.22,0.6,8,mat.pipeCold,TKX,TKY+0.6,TKZ+2.1,Math.PI/2);
+// Inlet (top side)
+cyl(0.22,0.22,0.6,8,mat.pipeCold,TKX+2.1,TKY+4.0,TKZ,0,0,Math.PI/2);
+// Mounting feet
+[[-1.5,-1.2],[-1.5,1.2],[1.5,-1.2],[1.5,1.2]].forEach(([dx,dz])=>
+  box(0.4,0.3,0.4,mat.steel,TKX+dx,TKY+0.15,TKZ+dz));
+
+// ── RADIATOR ──
+const RDX=10, RDY=4, RDZ=-20;
+box(11,7,0.7,mat.radiator,RDX,RDY,RDZ);
+for(let i=0;i<22;i++) box(11,6.6,0.06,mat.fin,RDX,RDY,RDZ+0.12+i*0.14);
+box(0.7,7,0.9,mat.steel,RDX-5.8,RDY,RDZ+0.2);// left header
+box(0.7,7,0.9,mat.steel,RDX+5.8,RDY,RDZ+0.2);// right header
+// Fan
+cyl(2.8,2.8,0.35,18,mat.chassis,RDX,RDY,RDZ-0.8);
+cyl(0.45,0.45,0.5,8,mat.steel,RDX,RDY,RDZ-1.1);
+const fanMesh = cyl(2.5,2.5,0.05,8,mat.fin,RDX,RDY,RDZ-1.0);
+// Brackets
+box(0.5,0.5,2.0,mat.steel,RDX-5.5,RDY-4.0,RDZ+0.3);
+box(0.5,0.5,2.0,mat.steel,RDX+5.5,RDY-4.0,RDZ+0.3);
+
+// ════════════════════════════════════════════
+// COOLANT PIPES — properly routed, NO overlaps
+// 
+// LOOP DIRECTION:
+// Pack (hot exit, right side top) →[HOT]→ Radiator inlet (right header)
+// Radiator outlet (left header) →[COLD]→ Pump inlet
+// Pump outlet →[COLD]→ Tank inlet (top)
+// Tank outlet (bottom) →[COLD]→ Pack inlet (left side bottom)
+// Inside pack: inlet manifold → coolant plates → cells → outlet manifold
+// ════════════════════════════════════════════
+
+// 1. HOT: Pack right side top → radiator right header (red)
+const hotPipe = tube([
+  V(PX+PW/2,   PY+PH,      PZ),
+  V(PX+PW/2+2, PY+PH+1,    PZ),
+  V(PX+PW/2+2, PY+PH+1,    RDZ+2),
+  V(RDX+5.8,   RDY+3.0,    RDZ+2),
+  V(RDX+5.8,   RDY+3.0,    RDZ+0.2),
+], 0.22, mat.pipeHot);
+
+// 2. COLD: Radiator left header → pump inlet (blue)
+const coldPipe1 = tube([
+  V(RDX-5.8,  RDY-3.0,  RDZ+0.2),
+  V(RDX-5.8,  RDY-3.0,  RDZ+3),
+  V(RDX-5.8,  1.2,       RDZ+3),
+  V(-6,        1.2,       RDZ+3),
+  V(-6,        1.2,       PMZ-1.5),
+  V(PMX+1.5,  PMY+1.0,   PMZ-1.15),
+  V(PMX,      PMY+1.0,   PMZ-1.15),
+], 0.22, mat.pipeCold);
+
+// 3. COLD: Pump outlet → tank inlet top
+const coldPipe2 = tube([
+  V(PMX-1.15, PMY+1.0, PMZ),
+  V(PMX-4.0,  PMY+1.0, PMZ),
+  V(TKX+2.5,  PMY+1.0, TKZ-2),
+  V(TKX+2.5,  TKY+4.0, TKZ-2),
+  V(TKX+2.1,  TKY+4.0, TKZ),
+], 0.22, mat.pipeCold);
+
+// 4. COLD: Tank outlet bottom → pack inlet left side bottom
+const coldPipe3 = tube([
+  V(TKX,      TKY+0.6,   TKZ+2.1),
+  V(TKX,      0.6,        TKZ+2.1),
+  V(TKX+3,    0.6,        TKZ+2.1),
+  V(TKX+6,    0.6,        PZ+3),
+  V(PX-PW/2,  0.6,        PZ+3),
+  V(PX-PW/2,  PY+0.7,    PZ),
+], 0.22, mat.pipeCold);
+
+// 5. INTERNAL pack: inlet manifold (right) → cross plates → outlet manifold (left)
+// These are already drawn as thin tubes above; add a vertical feed
+tube([V(PX+PW/2,PY+PH,PZ), V(PX+PW/2-1.0,PY+PH,PZ), V(PX+PW/2-1.2,PY+0.7,PZ)], 0.15, mat.pipeHot);
+tube([V(PX-PW/2,PY+PH,PZ), V(PX-PW/2+1.0,PY+PH,PZ), V(PX-PW/2+1.2,PY+0.7,PZ)], 0.15, mat.pipeHot.clone());
+
+// ── WIRES ──
+tube([V(PIX+1.8,PIY+1.0,PIZ),V(PIX+2.5,PIY+1.0,PIZ+1),V(RLX-0.8,RLY+1.0,RLZ-0.5),V(RLX-0.8,RLY+1.65,RLZ)],0.06,mat.wire_y);
+tube([V(RLX,RLY+1.65,RLZ+0.48),V(RLX,RLY+2.0,RLZ+1.5),V(PMX+0.2,PMY+2.0,PMZ-1.0),V(PMX+0.2,PMY+1.75,PMZ)],0.06,mat.wire_r);
+// NTC bundle (pack→pico)
+tube([V(PX-PW/2,PY+3,PZ),V(-12,3,PZ),V(-12,3,PIZ),V(PIX+1.8,PIY+1.0,PIZ)],0.09,mat.wire_b);
+// Power cables
+tube([V(PIX+1.5,PIY+1.0,PIZ),V(PIX+1.5,PIY+0.3,PIZ),V(RLX-0.9,0.3,RLZ)],0.1,mat.wire_r);
+
+// ════════════════════════════════════════════
+// PARTICLES — 4 separate streams, each in their pipe segment
+// Stream colors: hot=red/orange, cold=blue/cyan, internal=cyan bright
+// ════════════════════════════════════════════
+
+function makeParticles(count, color, size){
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(count*3);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  const pm = new THREE.PointsMaterial({color, size, transparent:true, opacity:0.95, depthWrite:false});
+  const pts = new THREE.Points(geo, pm);
+  scene.add(pts);
+  return {geo, pos, pm, pts};
+}
+
+// Full loop path (particles travel this)
+const loopPath = [
+  // Hot: pack top → radiator
+  V(PX+PW/2,   PY+PH,      PZ),
+  V(PX+PW/2+2, PY+PH+1,    PZ),
+  V(PX+PW/2+2, PY+PH+1,    RDZ+2),
+  V(RDX+5.8,   RDY+3.0,    RDZ+2),
+  V(RDX+5.8,   RDY,        RDZ+0.2),
+  V(RDX+5.8,   RDY-3.0,    RDZ+0.2),
+  // COLD: radiator → pump
+  V(RDX-5.8,   RDY-3.0,    RDZ+0.2),
+  V(RDX-5.8,   RDY-3.0,    RDZ+3),
+  V(RDX-5.8,   1.2,        RDZ+3),
+  V(-6,         1.2,        RDZ+3),
+  V(-6,         1.2,        PMZ-1.5),
+  V(PMX,        PMY+1.0,    PMZ-1.15),
+  // COLD: pump → tank
+  V(PMX-1.15,  PMY+1.0,    PMZ),
+  V(PMX-4.0,   PMY+1.0,    PMZ),
+  V(TKX+2.5,   PMY+1.0,    TKZ-2),
+  V(TKX+2.5,   TKY+4.0,    TKZ-2),
+  V(TKX+2.1,   TKY+4.0,    TKZ),
+  V(TKX,        TKY+2.0,    TKZ),// through tank
+  // COLD: tank → pack
+  V(TKX,        TKY+0.6,    TKZ+2.1),
+  V(TKX,        0.6,         TKZ+2.1),
+  V(PX-PW/2,   0.6,         PZ+3),
+  V(PX-PW/2,   PY+0.7,     PZ),
+  // INTERNAL: through pack manifolds and plates
+  V(PX-PW/2+1.2, PY+0.7,  PZ+4),
+  V(PX,           PY+0.5,  PZ+4),
+  V(PX,           PY+0.5,  PZ),
+  V(PX,           PY+0.5,  PZ-4),
+  V(PX+PW/2-1.2, PY+0.7,  PZ-4),
+  V(PX+PW/2-1.2, PY+0.7,  PZ),
+  V(PX+PW/2,     PY+PH,   PZ), // back to hot exit
+];
+
+const loopCurve = new THREE.CatmullRomCurve3(loopPath, true);
+const loopPoints = loopCurve.getPoints(800);
+
+// HOT particles (red)
+const hotP = makeParticles(40, 0xff4400, 0.28);
+// COLD particles (blue)
+const coldP = makeParticles(40, 0x2288ff, 0.25);
+// INTERNAL pack particles (bright cyan — inside the open pack)
+const intP = makeParticles(35, 0x00ffcc, 0.30);
+
+// Offsets so each stream is spread out
+const hotOffsets = [], coldOffsets = [], intOffsets = [];
+for(let i=0;i<40;i++) hotOffsets.push(i/40);
+for(let i=0;i<40;i++) coldOffsets.push(0.25 + i/40);
+for(let i=0;i<35;i++) intOffsets.push(0.74 + i/35 * 0.26);// only in internal segment
+
+let pT = 0;
+
+function updateParticles(flow){
+  const N = loopPoints.length;
+  const speed = (flow/12) * 0.055;
+  pT = (pT + speed) % 1;
+
+  // Hot stream (first ~20% of loop = pack exit to radiator)
+  for(let i=0;i<40;i++){
+    const t = (hotOffsets[i] + pT) % 1;
+    const idx = Math.floor(t * N) % N;
+    const p = loopPoints[idx];
+    hotP.pos[i*3]=p.x; hotP.pos[i*3+1]=p.y; hotP.pos[i*3+2]=p.z;
+  }
+  hotP.geo.attributes.position.needsUpdate = true;
+  hotP.pm.opacity = flow > 0.5 ? 0.95 : 0.05;
+
+  // Cold stream (25–74% of loop)
+  for(let i=0;i<40;i++){
+    const t = (coldOffsets[i] + pT) % 1;
+    const idx = Math.floor(t * N) % N;
+    const p = loopPoints[idx];
+    coldP.pos[i*3]=p.x; coldP.pos[i*3+1]=p.y; coldP.pos[i*3+2]=p.z;
+  }
+  coldP.geo.attributes.position.needsUpdate = true;
+  coldP.pm.opacity = flow > 0.5 ? 0.95 : 0.05;
+
+  // Internal pack stream (74–100%)
+  for(let i=0;i<35;i++){
+    const t = (intOffsets[i] + pT) % 1;
+    const idx = Math.floor(t * N) % N;
+    const p = loopPoints[idx];
+    intP.pos[i*3]=p.x; intP.pos[i*3+1]=p.y+0.2; intP.pos[i*3+2]=p.z;
+  }
+  intP.geo.attributes.position.needsUpdate = true;
+  intP.pm.opacity = flow > 0.5 ? 1.0 : 0.05;
+}
+
+// ── STATE ──
+let state = {relayOn:false, pumpFlow:0, heatRate:0.3, ambient:25, t:0, fault:false};
+
+function tempColor(t){
+  if(t<35) return [0,0.82,0.52];
+  if(t<42) return [1.0,0.69,0.13];
+  if(t<55) return [1.0,0.38,0.13];
+  return [1.0,0.13,0.13];
+}
+
+function tick(dt){
+  let maxT=0;
+  const cooling = state.relayOn ? state.pumpFlow*0.09 : 0;
+  cells.forEach(c=>{
+    c.temp += state.heatRate*dt*(0.85+Math.random()*0.3)
+             -(c.temp-state.ambient)*cooling*0.1
+             +(Math.random()-0.5)*0.03;
+    c.temp = Math.max(state.ambient, c.temp);
+    if(c.temp>maxT) maxT=c.temp;
+    const [r,g,b] = tempColor(c.temp);
+    c.mat.color.setRGB(r*0.55,g*0.55,b*0.55);
+    c.mat.emissive.setRGB(r*0.25,g*0.25,b*0.25);
+    c.mat.emissiveIntensity = 0.3+(c.temp/60)*0.6;
+  });
+
+  if(maxT>=42&&!state.relayOn){state.relayOn=true;setInfo('RELAY ON — GP6 HIGH — pump engaged');}
+  if(maxT<35&&state.relayOn){state.relayOn=false;setInfo('RELAY OFF — GP6 LOW — pump idle');}
+  if(maxT>=55&&!state.fault){state.fault=true;setInfo('⚠ THERMAL FAULT — cell ≥55°C — BMS ALERT');}
+  if(maxT<50) state.fault=false;
+
+  const target = state.relayOn?12:0;
+  state.pumpFlow += (target-state.pumpFlow)*0.04;
+
+  // HUD
+  document.getElementById('rdot').style.background = state.relayOn?'#00d084':'#2a3050';
+  document.getElementById('rtxt').textContent = state.relayOn?'ON':'OFF';
+  document.getElementById('rtxt').style.color = state.relayOn?'#00d084':'#2a3050';
+  document.getElementById('pdot').style.background = state.pumpFlow>0.5?'#00c8e0':'#2a3050';
+  document.getElementById('ptxt').textContent = state.pumpFlow>0.5?'RUNNING':'IDLE';
+  document.getElementById('ptxt').style.color = state.pumpFlow>0.5?'#00c8e0':'#2a3050';
+  document.getElementById('tmax').textContent = maxT.toFixed(1);
+  document.getElementById('fval').textContent = state.pumpFlow.toFixed(1);
+
+  relLed.material = state.relayOn?mat.ledOn:mat.ledOff;
+
+  // Pipe colors
+  if(state.pumpFlow>0.5){
+    hotPipe.material.color.setHex(0xdd2200);
+    hotPipe.material.emissive = new THREE.Color(0x220000);
+    hotPipe.material.emissiveIntensity = 0.3;
+    coldPipe1.material.color.setHex(0x1155cc);
+    coldPipe2.material.color.setHex(0x1155cc);
+    coldPipe3.material.color.setHex(0x1155cc);
+  } else {
+    hotPipe.material.color.setHex(0x441100);
+    hotPipe.material.emissiveIntensity = 0;
+    coldPipe1.material.color.setHex(0x0d1a33);
+    coldPipe2.material.color.setHex(0x0d1a33);
+    coldPipe3.material.color.setHex(0x0d1a33);
+  }
+
+  updateParticles(state.pumpFlow);
+}
+
+function setInfo(msg){document.getElementById('infobar').textContent='▶ '+msg;}
+
+// ── CONTROLS ──
+document.getElementById('hr').addEventListener('input',function(){state.heatRate=parseFloat(this.value);document.getElementById('hrv').textContent=this.value+'°/s';});
+document.getElementById('amb').addEventListener('input',function(){state.ambient=parseInt(this.value);document.getElementById('ambv').textContent=this.value+'°C';});
+function injectHot(){const i=Math.floor(Math.random()*cells.length);cells[i].temp=44+Math.random()*4;setInfo('HOTSPOT: cell #'+(i+1)+' → '+cells[i].temp.toFixed(1)+'°C');}
+function injectFault(){const i=Math.floor(Math.random()*cells.length);cells[i].temp=57+Math.random()*3;setInfo('FAULT: cell #'+(i+1)+' CRITICAL '+cells[i].temp.toFixed(1)+'°C');}
+function resetSim(){cells.forEach(c=>c.temp=22+Math.random()*3);state.relayOn=false;state.pumpFlow=0;state.fault=false;setInfo('RESET — all cells nominal');}
+function forceCool(){cells.forEach(c=>c.temp=Math.max(state.ambient-2,c.temp-18));setInfo('FORCE COOL applied');}
+
+// ── ORBIT ──
+let drag=false, lx=0, ly=0;
+canvas.addEventListener('mousedown',e=>{drag=true;lx=e.clientX;ly=e.clientY;});
+window.addEventListener('mouseup',()=>drag=false);
+window.addEventListener('mousemove',e=>{
+  if(!drag)return;
+  theta-=(e.clientX-lx)*0.007; phi=Math.max(0.18,Math.min(1.4,phi-(e.clientY-ly)*0.006));
+  lx=e.clientX;ly=e.clientY;
+});
+canvas.addEventListener('wheel',e=>{radius=Math.max(14,Math.min(90,radius+e.deltaY*0.05));},{passive:true});
+canvas.addEventListener('touchstart',e=>{lx=e.touches[0].clientX;ly=e.touches[0].clientY;},{passive:true});
+canvas.addEventListener('touchmove',e=>{
+  theta-=(e.touches[0].clientX-lx)*0.009;
+  phi=Math.max(0.18,Math.min(1.4,phi-(e.touches[0].clientY-ly)*0.007));
+  lx=e.touches[0].clientX;ly=e.touches[0].clientY;
+},{passive:true});
+
+// ── RENDER ──
+let last=performance.now(), pumpAngle=0, fanAngle=0;
+function animate(){
+  requestAnimationFrame(animate);
+  const now=performance.now(), dt=Math.min((now-last)/1000,0.05);
+  last=now; state.t+=dt;
+
+  tick(dt);
+
+  // Camera orbit
+  camera.position.set(
+    Math.sin(theta)*Math.cos(phi)*radius,
+    Math.sin(phi)*radius*0.7+4,
+    Math.cos(theta)*Math.cos(phi)*radius
+  );
+  camera.lookAt(0,2,0);
+
+  // Pump rotation
+  if(state.pumpFlow>0.1){pumpAngle+=dt*state.pumpFlow*1.0;pumpSpin.rotation.y=pumpAngle;}
+  // Fan rotation
+  fanAngle+=dt*(state.pumpFlow>0.5?3:0.3);
+  fanMesh.rotation.z=fanAngle;
+
+  // Tank water level ripple
+  tankWater.scale.y=0.9+Math.sin(state.t*0.7)*0.04;
+  tankWater.position.y=TKY+2.1+Math.sin(state.t*0.7)*0.05;
+
+  renderer.render(scene,camera);
+}
+animate();
+
+window.addEventListener('resize',()=>{
+  W=WRP.clientWidth;
+  renderer.setSize(W,H);
+  camera.aspect=W/H;
+  camera.updateProjectionMatrix();
+});
+</script>
